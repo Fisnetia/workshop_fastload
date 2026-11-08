@@ -116,8 +116,12 @@ volatile LONG g_cntDetails = 0;
 // never capped, only the log lines.
 enum { LOG_BUDGET = 2000 };
 
-char g_logPath[MAX_PATH] = {};
-char g_iniPath[MAX_PATH] = {};
+// Wide on purpose: the game folder can contain characters outside the system
+// code page (say, a Korean folder name on a Chinese Windows), and the ANSI file
+// APIs cannot open such a path at all.
+wchar_t g_logPath[MAX_PATH] = {};
+wchar_t g_iniPath[MAX_PATH] = {};
+char    g_cfgNote[160] = {};   // what happened to the config file, for the log
 
 inline double Now()
 {
@@ -635,18 +639,28 @@ DWORD WINAPI StatsThread(LPVOID)
 // ---------------------------------------------------------------------------
 void BuildPaths()
 {
-    char dll[MAX_PATH] = {};
-    GetModuleFileNameA(g_hSelf, dll, MAX_PATH);
+    wchar_t dll[MAX_PATH] = {};
+    GetModuleFileNameW(g_hSelf, dll, MAX_PATH);
 
-    strncpy_s(g_logPath, dll, _TRUNCATE);
-    char* dot = strrchr(g_logPath, '.');
-    if (!dot) dot = g_logPath + strlen(g_logPath);
-    strcpy_s(dot, sizeof(g_logPath) - (size_t)(dot - g_logPath), ".log");
+    // The extension dot must be in the file name, not in a folder name.
+    wchar_t* slash = wcsrchr(dll, L'\\');
+    wchar_t* dot = wcsrchr(slash ? slash : dll, L'.');
+    size_t stem = dot ? (size_t)(dot - dll) : wcslen(dll);
 
-    strncpy_s(g_iniPath, dll, _TRUNCATE);
-    dot = strrchr(g_iniPath, '.');
-    if (!dot) dot = g_iniPath + strlen(g_iniPath);
-    strcpy_s(dot, sizeof(g_iniPath) - (size_t)(dot - g_iniPath), ".ini");
+    wcsncpy_s(g_logPath, dll, stem);
+    wcscat_s(g_logPath, L".log");
+    wcsncpy_s(g_iniPath, dll, stem);
+    wcscat_s(g_iniPath, L".ini");
+}
+
+std::string WideToUtf8(const wchar_t* w)
+{
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return std::string();
+    std::string s((size_t)n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], n, nullptr, nullptr);
+    s.resize((size_t)n - 1);
+    return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -656,30 +670,91 @@ void BuildPaths()
 // GetPrivateProfileStringA / WritePrivateProfileStringA are ANSI only: when they
 // rewrite a UTF-8 file, Chinese comments can come back mangled, and a UTF-8 BOM
 // hides the first [section] header from them. So:
-//   - Encoding: UTF-8 (BOM optional; the shipped file has none, like l4n's own
-//     config.vdf), plain ANSI/GBK, or UTF-16 LE with BOM (Notepad "Unicode").
-//     Keys and values are ASCII; comment lines (; or #) and inline comments
-//     (" ; ..." after a value) may contain anything.
+//   - Encoding read: UTF-8 with or without BOM, plain ANSI/GBK, or UTF-16 LE
+//     with BOM (Notepad "Unicode"). Keys and values are ASCII; comment lines
+//     (; or #) and inline comments (" ; ..." after a value) may contain anything.
+//   - The generated file is UTF-8 with a BOM and CRLF line endings: the BOM makes
+//     every Windows editor, old Notepad included, show the Chinese comments
+//     correctly whatever the system language is.
 //   - Writing changes exactly one value in place and keeps every other byte:
 //     comments, blank lines, line endings, BOM / UTF-16. It goes through a temp
 //     file + MoveFileEx, so a crash mid-write cannot leave a truncated config.
 // ---------------------------------------------------------------------------
 namespace cfg {
 
+// The comments below must reach the file as UTF-8 whatever machine builds this.
+static_assert(sizeof("中") == 4, "compile with /utf-8 (see build.bat)");
+
 const char kSection[] = "probe";
+
+// Written on first launch, so installing the DLL alone is enough.
+const char kDefaultIni[] = R"INI(; workshop_fastload 配置文件
+; 第一次启动时自动生成，删掉后下次启动会重新生成。改完下次启动游戏生效。
+; 分号 ; 或井号 # 开头的行是注释，也可以写在值后面（值和分号之间留个空格）。
+
+[probe]
+
+; 工作模式
+;   1 = 加速（默认）：除豁免项外，创意工坊 mod 走 Steam 本地缓存，不再每次启动都去服务器检查
+;   0 = 只记录：什么都不改，只在日志里记下每次查询，用于排查问题
+; 这一项缺失时按 0 处理。
+mode=1
+
+; 缓存多久算新
+;   never  = 永不过期（默认）：mod 不再自己检查更新，想更新时用下面的 check_all_next_launch
+;   秒数   = 60 到 2147483647 之间，例如 604800（7 天）：超过这个时间的条目会重新去服务器检查，
+;            那次启动会慢一分钟左右
+max_seconds_old=never
+
+; 下次启动检查全部 mod 更新（一次性）
+;   1 = 下次启动对所有 mod 完整检查一次（慢一分钟左右），下载有更新的 mod，然后自动改回 0
+; 平时不用手改：在 l4n 的 HUD 菜单"插件 → 创意工坊Mod检查"里切换即可。
+check_all_next_launch=0
+
+; 每次启动都照常检查更新的 mod，逗号分隔，数量不限
+; ID 是创意工坊网址里 ?id= 后面的数字，也是 addons\workshop\<ID>.vpk 的文件名。
+; 每加一个，启动大约慢 0.3 秒。l4n（3558049615）和 skeeto（3782512354）已内置，不用填。
+; 去掉行首的分号即可启用：
+;bypass_ids=1234567890,2345678901
+
+; 以下是诊断选项，一般不用动
+
+; 启动时把 Steam 接口的前 8 个虚函数地址写进日志
+log_vtable=1
+
+; 额外记录下载相关的三个接口（UGCDownload / UGCRead / GetUGCDetails），只记录不修改
+diag_hooks=0
+)INI";
+
+std::string DefaultText()
+{
+    std::string t;
+    for (const char* p = kDefaultIni; *p; p++) {
+        if (*p == '\r') continue;
+        if (*p == '\n') t += '\r';
+        t += *p;
+    }
+    return t;
+}
 
 struct File {
     std::string text;      // UTF-8 / ANSI bytes, BOM removed
-    bool bom   = false;    // had a UTF-8 BOM
-    bool utf16 = false;    // was UTF-16 LE (converted to UTF-8 in text)
-    bool found = false;    // the file exists and was read
+    bool bom     = false;  // had a UTF-8 BOM
+    bool utf16   = false;  // was UTF-16 LE (converted to UTF-8 in text)
+    bool found   = false;  // the file exists and was read
+    bool missing = false;  // the file does not exist (as opposed to: unreadable)
+
+    bool Blank() const { return found && text.find_first_not_of(" \t\r\n") == std::string::npos; }
 };
 
-bool ReadBytes(const char* path, std::string& out)
+bool ReadBytes(const wchar_t* path, std::string& out, DWORD* err)
 {
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
+    if (h == INVALID_HANDLE_VALUE) {
+        *err = GetLastError();
+        return false;
+    }
     LARGE_INTEGER size = {};
     bool ok = GetFileSizeEx(h, &size) && size.QuadPart < (16 << 20);
     if (ok) {
@@ -691,11 +766,15 @@ bool ReadBytes(const char* path, std::string& out)
     return ok;
 }
 
-File Load(const char* path)
+File Load(const wchar_t* path)
 {
     File f;
     std::string raw;
-    if (!ReadBytes(path, raw)) return f;
+    DWORD err = 0;
+    if (!ReadBytes(path, raw, &err)) {
+        f.missing = err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND;
+        return f;
+    }
     f.found = true;
     if (raw.size() >= 3 && (unsigned char)raw[0] == 0xEF && (unsigned char)raw[1] == 0xBB &&
         (unsigned char)raw[2] == 0xBF) {
@@ -789,10 +868,56 @@ int GetInt(const File& f, const char* key, int def)
     return (*end == '\0') ? (int)n : def;
 }
 
-bool Set(const char* path, const char* key, const char* value)
+// Temp file + rename: a crash mid-write cannot leave a truncated config.
+// With replace=false an existing file is left alone.
+bool WriteAtomic(const wchar_t* path, const std::string& bytes, bool replace)
+{
+    std::wstring tmp = std::wstring(path) + L".tmp";
+    HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD wrote = 0;
+    bool ok = WriteFile(h, bytes.data(), (DWORD)bytes.size(), &wrote, nullptr) && wrote == bytes.size();
+    ok = FlushFileBuffers(h) && ok;
+    CloseHandle(h);
+    if (ok) ok = MoveFileExW(tmp.c_str(), path, MOVEFILE_WRITE_THROUGH | (replace ? MOVEFILE_REPLACE_EXISTING : 0)) != 0;
+    if (!ok) DeleteFileW(tmp.c_str());
+    return ok;
+}
+
+// A missing or blank file is replaced by the defaults. A file that exists but
+// cannot be read (locked by an editor, say) is never overwritten: this launch
+// runs on the defaults and the user's file stays as it is. Either way the
+// defaults apply, so a config problem cannot quietly turn the plugin off.
+File LoadOrCreate(const wchar_t* path)
 {
     File f = Load(path);
-    const char* nl = f.text.find("\r\n") != std::string::npos || !f.found ? "\r\n" : "\n";
+    if (f.found && !f.Blank()) return f;
+
+    File def;
+    def.text  = DefaultText();
+    def.bom   = true;
+    def.found = true;
+    if (f.missing || f.Blank()) {
+        bool wrote = WriteAtomic(path, std::string("\xEF\xBB\xBF", 3) + def.text, f.Blank());
+        strcpy_s(g_cfgNote, wrote ? "created the default config file"
+                                  : "!! could not create the config file, running on defaults");
+    } else {
+        strcpy_s(g_cfgNote, "!! config file exists but cannot be read, running on defaults");
+    }
+    return def;
+}
+
+bool Set(const wchar_t* path, const char* key, const char* value)
+{
+    File f = Load(path);
+    if (!f.found && !f.missing) return false;   // unreadable: do not clobber it
+    if (f.missing || f.Blank()) {
+        f.text  = DefaultText();
+        f.bom   = true;
+        f.utf16 = false;
+        f.found = true;
+    }
+    const char* nl = f.text.find("\r\n") != std::string::npos ? "\r\n" : "\n";
     size_t b = 0, e = 0, secEnd = std::string::npos;
     if (Find(f.text, key, &b, &e, &secEnd)) {
         f.text.replace(b, e - b, value);
@@ -817,24 +942,14 @@ bool Set(const char* path, const char* key, const char* value)
         out += f.text;
     }
 
-    char tmp[MAX_PATH + 8];
-    _snprintf_s(tmp, sizeof(tmp), _TRUNCATE, "%s.tmp", path);
-    HANDLE h = CreateFileA(tmp, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    DWORD wrote = 0;
-    bool ok = WriteFile(h, out.data(), (DWORD)out.size(), &wrote, nullptr) && wrote == out.size();
-    ok = FlushFileBuffers(h) && ok;
-    CloseHandle(h);
-    if (ok) ok = MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-    if (!ok) DeleteFileA(tmp);
-    return ok;
+    return WriteAtomic(path, out, true);
 }
 
 }  // namespace cfg
 
 void LoadConfig()
 {
-    cfg::File ini = cfg::Load(g_iniPath);
+    cfg::File ini = cfg::LoadOrCreate(g_iniPath);
 
     g_mode      = cfg::GetInt(ini, "mode", 0);
     g_logVtable = cfg::GetInt(ini, "log_vtable", 1);
@@ -916,7 +1031,7 @@ BypassKind BypassKindOf(std::uint64_t id)
 
 void OpenLog()
 {
-    g_hLog = CreateFileA(g_logPath, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+    g_hLog = CreateFileW(g_logPath, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (g_hLog == INVALID_HANDLE_VALUE) return;
 
@@ -924,7 +1039,8 @@ void OpenLog()
     GetLocalTime(&st);
     Logf("==== workshop_fastload start %04d-%02d-%02d %02d:%02d:%02d ====",
          st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    Logf("log: %s", g_logPath);
+    Logf("log: %s", WideToUtf8(g_logPath).c_str());
+    if (g_cfgNote[0]) Logf("CFG    %s", g_cfgNote);
     Logf("mode=%d (%s), forceMaxAge=%u%s", g_mode,
          g_mode == 1 ? "rewrite unMaxSecondsOld" : "log only", g_forceMaxAge,
          g_forceMaxAge == kNeverMaxAge ? " (never)" : "");

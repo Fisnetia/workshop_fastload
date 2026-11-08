@@ -25,9 +25,9 @@ Steam 在本机保存了每个 mod 上次查到的信息。插件在游戏发出
 
 需要先安装 left4neko（本插件基于 2.51 版本开发）。
 
-1. 在 [Releases](https://github.com/Fisnetia/workshop_fastload/releases) 下载 `workshop_fastload.dll` 和 `workshop_fastload.ini`。
-2. 把这两个文件直接放进 `Left 4 Dead 2\bin\neko\plugins\`，不要放进子文件夹。
-3. 启动游戏。
+1. 在 [Releases](https://github.com/Fisnetia/workshop_fastload/releases) 下载 `workshop_fastload.dll`。
+2. 把它直接放进 `Left 4 Dead 2\bin\neko\plugins\`，不要放进子文件夹。
+3. 启动游戏。第一次启动时，同一个文件夹里会自动生成配置文件 `workshop_fastload.ini`。
 
 插件会修改游戏进程的内存，建议和 l4n 一样在启动项里加上 `-insecure`，不要进入开启 VAC 的服务器。
 
@@ -57,7 +57,7 @@ mod 的 ID 是创意工坊网址中 `?id=` 后面的数字，也是 `addons\work
 
 ### 配置项
 
-配置文件是 `workshop_fastload.ini`，修改后下次启动生效。
+配置文件是 `workshop_fastload.ini`，修改后下次启动生效。把它删掉，下次启动会重新生成默认配置。
 
 | 配置项 | 说明 |
 | --- | --- |

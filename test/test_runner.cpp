@@ -160,7 +160,9 @@ int main(int argc, char** argv)
     int v016Mode = 0;
     if (argc > 2) v016Mode = (int)strtoul(argv[2], nullptr, 10);
 
-    GetFullPathNameA("workshop_fastload.ini", MAX_PATH, g_ini, nullptr);
+    // Relative on purpose: the harness also runs from folders whose names the
+    // ANSI code page cannot represent.
+    strcpy_s(g_ini, "workshop_fastload.ini");
     const int fullCheckRequested = IniFlag();
     printf("check_all_next_launch at start: %d\n", fullCheckRequested);
 
