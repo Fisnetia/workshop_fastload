@@ -1,0 +1,20 @@
+# left4neko's plugin header: copy it from <game>\bin\neko\plugins\ to build
+src/l4n_plugin.h
+
+# build output
+obj/
+dist/*.dll
+dist/*.pdb
+*.obj
+*.exp
+*.lib
+*.pdb
+
+# test artefacts (built by test/build_test.bat)
+test/steam_api.dll
+test/test_runner.exe
+test/workshop_fastload.dll
+test/workshop_fastload.log
+
+# run logs are evidence, kept locally but not versioned
+logs/
