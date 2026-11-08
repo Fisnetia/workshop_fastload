@@ -29,7 +29,7 @@ Steam 在本机保存了每个 mod 上次查到的信息。插件在游戏发出
 2. 把它直接放进 `Left 4 Dead 2\bin\neko\plugins\`，不要放进子文件夹。
 3. 启动游戏。第一次启动时，同一个文件夹里会自动生成配置文件 `workshop_fastload.ini`。
 
-插件会修改游戏进程的内存，建议和 l4n 一样在启动项里加上 `-insecure`，不要进入开启 VAC 的服务器。
+插件会修改游戏进程的内存，不确保 VAC 的安全性，建议在启动项里加上 `-insecure`。
 
 卸载时删除 `plugins` 文件夹里的 `workshop_fastload.dll`、`workshop_fastload.ini` 和 `workshop_fastload.log`。
 
