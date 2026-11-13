@@ -79,7 +79,7 @@ char         g_cfgWarn[160] = {};
 // Filled once in LoadConfig, before any hook is installed, and read-only after.
 const std::uint64_t kBuiltinBypass[] = {
     3558049615ULL,   // left4neko itself - it checks for its own updates
-    3782512354ULL,   // skeeto sound pack (191 MB), stale copy is worth avoiding
+    3787239937ULL,   // skeeto client framework - also updates itself from the workshop
 };
 const int kBuiltinBypassCount = (int)(sizeof(kBuiltinBypass) / sizeof(kBuiltinBypass[0]));
 std::vector<std::uint64_t> g_bypass(kBuiltinBypass, kBuiltinBypass + kBuiltinBypassCount);
@@ -713,7 +713,7 @@ check_all_next_launch=0
 
 ; 每次启动都照常检查更新的 mod，逗号分隔，数量不限
 ; ID 是创意工坊网址里 ?id= 后面的数字，也是 addons\workshop\<ID>.vpk 的文件名。
-; 每加一个，启动大约慢 0.3 秒。l4n（3558049615）和 skeeto（3782512354）已内置，不用填。
+; 每加一个，启动大约慢 0.3 秒。l4n（3558049615）和 skeeto（3787239937）已内置，不用填。
 ; 去掉行首的分号即可启用：
 ;bypass_ids=1234567890,2345678901
 
@@ -1178,7 +1178,7 @@ class WorkshopFastloadPlugin : public IL4NPlugin {
 public:
     unsigned int GetInterfaceVersion() override { return 2; }
     const char* GetName() override { return "WorkshopFastload"; }
-    const char* GetVersion() override { return "0.1.0"; }
+    const char* GetVersion() override { return "0.1.1"; }
 
     void OnModuleLoaded(const char* module_name, std::uintptr_t /*handle*/) override
     {

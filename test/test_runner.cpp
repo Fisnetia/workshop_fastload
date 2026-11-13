@@ -276,7 +276,7 @@ int main(int argc, char** argv)
     // The tooling bypass list must keep the caller's own window, otherwise the
     // update check for l4n / skeeto gets stretched along with everything else.
     if (expected != 0) {
-        const std::uint64_t toolIds[] = { 3558049615ULL, 3782512354ULL };
+        const std::uint64_t toolIds[] = { 3558049615ULL, 3787239937ULL };
         for (std::uint64_t toolId : toolIds) {
             callGpd(toolId, 0);
             unsigned int bypassMaxAge = seenMaxAge();
@@ -287,6 +287,16 @@ int main(int argc, char** argv)
                 printf("FAIL bypass id did not keep the original window\n");
                 ok = 0;
             }
+        }
+
+        // 3782512354 is skeeto's asset pack, not skeeto itself; an older build
+        // listed it by mistake. It is an ordinary mod and must be rewritten.
+        callGpd(3782512354ULL, 0);
+        printf("asset pack id=%llu seen_maxAge=%u (expected %u)\n",
+               (unsigned long long)seenId(), seenMaxAge(), expected);
+        if (seenMaxAge() != expected) {
+            printf("FAIL skeeto asset pack is still on the built-in bypass list\n");
+            ok = 0;
         }
     }
 
